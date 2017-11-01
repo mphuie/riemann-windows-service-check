@@ -13,13 +13,14 @@ import (
 )
 
 type Config struct {
-	Riemann_host string
-	Services     map[string][]string
+	Riemann_host          string
+	Event_ttl             int
+	Check_timeout_seconds int
+	Services              map[string][]string
 }
 
-func checkWindowsService(host string, service string, ch chan riemanngo.Event) {
-
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+func checkWindowsService(host string, service string, event_ttl float32, check_timeout_seconds int, ch chan riemanngo.Event) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(check_timeout_seconds)*time.Second)
 	defer cancel()
 
 	command := fmt.Sprintf("sc \\\\%s query %s", host, service)
@@ -34,7 +35,7 @@ func checkWindowsService(host string, service string, ch chan riemanngo.Event) {
 			Metric:      0,
 			Description: fmt.Sprintf("Timed out querying service %s. Is host up?", service),
 			Host:        host,
-			Ttl:         300,
+			Ttl:         event_ttl,
 		}
 	}
 
@@ -45,7 +46,7 @@ func checkWindowsService(host string, service string, ch chan riemanngo.Event) {
 			Metric:      0,
 			Description: fmt.Sprintf("%s service doesn't exist.", service),
 			Host:        host,
-			Ttl:         300,
+			Ttl:         event_ttl,
 		}
 	}
 	if strings.Contains(string(out), "STOPPED") {
@@ -55,7 +56,7 @@ func checkWindowsService(host string, service string, ch chan riemanngo.Event) {
 			Metric:      0,
 			Description: fmt.Sprintf("%s service is stopped.", service),
 			Host:        host,
-			Ttl:         300,
+			Ttl:         event_ttl,
 		}
 	}
 	if strings.Contains(string(out), "RUNNING") {
@@ -65,7 +66,7 @@ func checkWindowsService(host string, service string, ch chan riemanngo.Event) {
 			Metric:      0,
 			Description: fmt.Sprintf("%s service is running.", service),
 			Host:        host,
-			Ttl:         300,
+			Ttl:         event_ttl,
 		}
 	}
 }
@@ -98,7 +99,7 @@ func main() {
 
 		for _, host := range hosts {
 			checkCount++
-			go checkWindowsService(host, service, ch)
+			go checkWindowsService(host, service, float32(t.Event_ttl), t.Check_timeout_seconds, ch)
 		}
 	}
 
