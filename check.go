@@ -1,29 +1,25 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/riemann/riemann-go-client"
-	"context"
-	"time"
-	"os/exec"
-	"strings"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"log"
+	"os/exec"
+	"strings"
+	"time"
 )
 
 type Config struct {
 	Riemann_host string
-	Services struct {
-		Clustermonitor []string
-	}
+	Services     map[string][]string
 }
 
-
 func checkWindowsService(host string, service string, ch chan riemanngo.Event) {
-	fmt.Println("checking!!")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 45 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
 	command := fmt.Sprintf("sc \\\\%s query %s", host, service)
@@ -33,41 +29,41 @@ func checkWindowsService(host string, service string, ch chan riemanngo.Event) {
 
 	if ctx.Err() == context.DeadlineExceeded {
 		ch <- riemanngo.Event{
-			Service: "clustermonitor",
-			State: "critical",
-			Metric: 0,
-			Description: "Timed out, is host up?",
-			Host: host,
-			Ttl: 300,
+			Service:     service,
+			State:       "critical",
+			Metric:      0,
+			Description: fmt.Sprintf("Timed out querying service %s. Is host up?", service),
+			Host:        host,
+			Ttl:         300,
 		}
 	}
 
 	if err != nil {
 		ch <- riemanngo.Event{
-			Service: "clustermonitor",
-			State: "critical",
-			Metric: 0,
-			Description: "Clustermonitor service doesn't exist",
-			Host: host,
-			Ttl: 300,
+			Service:     service,
+			State:       "critical",
+			Metric:      0,
+			Description: fmt.Sprintf("%s service doesn't exist.", service),
+			Host:        host,
+			Ttl:         300,
 		}
 	}
 	if strings.Contains(string(out), "STOPPED") {
 		ch <- riemanngo.Event{
-			Service: "clustermonitor",
-			State: "warning",
-			Metric: 0,
-			Description: "Clustermonitor service is stopped",
-			Host: host,
-			Ttl: 300,
+			Service:     service,
+			State:       "warning",
+			Metric:      0,
+			Description: fmt.Sprintf("%s service is stopped.", service),
+			Host:        host,
+			Ttl:         300,
 		}
 	}
 	if strings.Contains(string(out), "RUNNING") {
 		ch <- riemanngo.Event{
-			Service:     "clustermonitor",
+			Service:     service,
 			State:       "ok",
 			Metric:      0,
-			Description: "Clustermonitor service is running",
+			Description: fmt.Sprintf("%s service is running.", service),
 			Host:        host,
 			Ttl:         300,
 		}
@@ -75,8 +71,7 @@ func checkWindowsService(host string, service string, ch chan riemanngo.Event) {
 }
 
 func main() {
-	fmt.Println("hello!")
-	data, err := ioutil.ReadFile("hmp.yaml")
+	data, err := ioutil.ReadFile("config.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -97,18 +92,17 @@ func main() {
 
 	ch := make(chan riemanngo.Event)
 
+	checkCount := 0
+	for service, hosts := range t.Services {
+		fmt.Printf("----%v\n", service)
 
-
-	fmt.Printf("--- t:\n%v\n\n", t.Services.Clustermonitor)
-
-
-
-	for _, host := range t.Services.Clustermonitor {
-		go checkWindowsService(host, "clustermonitor", ch)
+		for _, host := range hosts {
+			checkCount++
+			go checkWindowsService(host, service, ch)
+		}
 	}
 
-
-	for i := 0; i < len(t.Services.Clustermonitor); {
+	for i := 0; i < checkCount; i++ {
 		select {
 		case result := <-ch:
 			fmt.Printf("Got this over the channel %v\n", result)
